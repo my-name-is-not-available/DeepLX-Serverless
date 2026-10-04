@@ -4,78 +4,64 @@
 <a href="https://github.com/guobao2333/DeepLX-Serverless"><img alt="Repository" src="https://img.shields.io/badge/Github-%230A0A0A.svg?&style=flat-square&logo=Github&logoColor=white"/></a>
 </p>
 
-DeepLX Serverless是一个基于DeepL翻译网页版且无需令牌的Serverless版本，与原项目[DeepLX](https://github.com/OwO-Network/DeepLX)的区别在于**利用了无服务器函数(边缘函数)请求IP不固定的特性**，有效避免了`Error 429`（不过嘛凡事总有例外¯\\\_(ツ)_/¯）
+DeepLX Serverless 是一个基于 DeepL 翻译网页版、无需令牌的 Serverless 版本，与原项目 [DeepLX](https://github.com/OwO-Network/DeepLX) 的区别在于**利用了无服务器函数（边缘函数）请求 IP 不固定的特性**，有效避免了 `Error 429`（不过嘛凡事总有例外¯\\\_(ツ)\_/¯）
 
-**3.0版本开始完全基于[OwO-Network/DeepLX](https://github.com/OwO-Network/DeepLX)和DeepL网页版数据进行重写。**  
-**2.0及之前版本在[LegendLeo/deeplx-serverless](https://github.com/LegendLeo/deeplx-serverless)的基础上进行重构。**
+**4.0 版本开始使用 [Hono](https://hono.dev) + Cloudflare Workers 重写**，彻底移除了 Express / axios / zlib 等 Node 依赖，直接运行在 Web 标准 API 之上。  
+历史版本：3.x 及之前基于 OwO-Network/DeepLX，2.x 基于 LegendLeo/deeplx-serverless。
 
 ## Prerequisites | 准备工作
-> [!IMPORTANT]
-> 有时`main`分支的合并可能不及时，或者你希望提前体验新功能，请切换到`dev`分支获取代码。
 
-- 支持 `Nodejs ≥18` 或 `Docker` 或 `Serverless Function` 的服务器
-- (可选) 拥有[Vercel](https://vercel.com)的账号
+- 一个 [Cloudflare](https://dash.cloudflare.com/sign-up) 账号（免费版即可）
+- 本地需要 `Node.js ≥ 20`
 
-### Deploy | 部署
+## Deploy | 部署
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/guobao2333/DeepLX-Serverless)
+### 方式一：本地开发并部署
 
 ```bash
-git clone https://github.com/guobao2333/DeepLX-Serverless
-cd DeepLX-Serverless
-npm i
-npm run start
+npm install
+npm run dev       # 本地预览，默认 http://localhost:8787
+npm run deploy    # 部署到 Cloudflare Workers
 ```
 
-配置可编辑`.env`或者提供启动参数来修改。
+首次 `deploy` 会引导你登录 Cloudflare 账号并自动创建 Worker。
 
-### Docker | 容器部署
+### 方式二：Cloudflare Dashboard
 
-🐳预构建：
-```bash
-docker run -d -p 6119:6119 ghcr.io/guobao2333/deeplx-serverless
-```
+在 Cloudflare 控制台创建 Worker，把 `src` 下的代码粘贴进去即可（或将仓库连接到 Workers Builds 自动构建）。
 
-自行构建：
-```bash
-docker build -t deeplxs .
-docker run -d -p 6119:6119 deeplxs
-```
+> [!TIP]
+> 部署完成后你会拿到形如 `https://deeplx-serverless.<你的子域>.workers.dev` 的地址。
 
-### Startup Parameters | 启动参数
-> [!IMPORTANT]
-> 此功能在 2.0.0 及以上版本中可用。  
-> 启动参数会覆盖`.env`
+### Configuration | 配置
 
-有时你可能想在启动服务时添加参数。  
-比如添加一个`-c`参数来允许所有跨域请求：
-```bash
-npm run start -- -c
-```
+配置写在 `wrangler.jsonc` 的 `vars` 中，本地开发也可以使用 `.dev.vars` 文件（已被 `.gitignore` 忽略）。
 
-💡使用`-h`来获取所有参数。
+| 变量 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `ALTERNATIVE` | String | `"true"` | 是否返回备选翻译。文本量大时设为 `"false"` 可节省流量 |
+| `CORS_ORIGIN` | String | `"*"` | 允许跨域的来源。`"*"` 允许任意来源，`"false"` 关闭，也可用逗号分隔白名单 |
+| `DL_SESSION` | String | 无 | 可选的 DeepL 会话 Cookie，用于复用已登录会话 |
+
+修改后重新 `npm run deploy` 生效。
 
 ## How To Use | 如何使用
 
-* 详细调用参数请查看[项目Wiki](https://github.com/guobao2333/DeepLX-Serverless/wiki)。
+详细调用参数请查看 [docs/API.md](./docs/API.md)，迁移与部署说明见 [docs/DEPLOY.md](./docs/DEPLOY.md)。
 
 ### Http Call | 网络请求
 
 ```bash
-curl -X POST 'http://localhost:6119/translate' -H 'Content-Type: application/json' -d '{"text": "你好，世界！", "source_lang": "zh", "target_lang": "en"}'
+curl -X POST 'https://your-worker.workers.dev/translate' \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "你好，世界！", "source_lang": "zh", "target_lang": "en"}'
 ```
 
-### Internal Call | 集成使用
+### Test | 测试
 
-运行`npm test`来测试翻译接口。还可以集成到你的项目中来使用DeepL翻译服务。
-
-简单的示例：
-```javascript
-import { translate } from './src/translate.js';
-translate('how are you?', 'en', 'zh')
-.then(result => {
-  console.log(result)
-});
+```bash
+# 本地先 npm run dev，再另开终端
+BASE_URL=http://localhost:8787 npm test
 ```
 
 ## Star History | 收藏趋势
@@ -89,9 +75,9 @@ translate('how are you?', 'en', 'zh')
 </a>
 
 ## Contribute | 贡献
-1. 获取`dev`或`main`分支的代码
+1. 获取 `dev` 或 `main` 分支的代码
 2. 提交你的更改并描述提交内容
-3. 创建一个`Pull Requests`
+3. 创建一个 `Pull Requests`
 
 如果你是第一次贡献，那么请查看[《如何为开源做贡献》](https://opensource.guide/how-to-contribute/)
 
@@ -102,8 +88,7 @@ translate('how are you?', 'en', 'zh')
 1. [OwO-Network/DeepLX](https://github.com/OwO-Network/DeepLX)
 2. [LegendLeo/deeplx-serverless](https://github.com/LegendLeo/deeplx-serverless)
 3. [bropines/Deeplx-vercel](https://github.com/bropines/Deeplx-vercel)
+4. [honojs/hono](https://github.com/honojs/hono)
 
 ## Disclaimer | 免责声明
-请勿依赖本项目，因基于DeepL网页版数据，可能随时罢工。如果您有大量内容需要翻译，请购买DeepL官方翻译API，DeepLXS始终受到DeepL政策限制。
-
-本项目目前处于开发状态，实现及其简陋，部分功能已编写文档不代表已实现。
+请勿依赖本项目，因基于 DeepL 网页版数据，可能随时罢工。如果您有大量内容需要翻译，请购买 DeepL 官方翻译 API，DeepLXS 始终受到 DeepL 政策限制。

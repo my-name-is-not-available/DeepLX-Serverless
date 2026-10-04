@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "deeplx-serverless",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-04",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    // 是否返回备选翻译。文本量大时可设为 false 节省流量
+    "ALTERNATIVE": "true",
+    // 允许跨域的来源，'*' 表示允许任何来源
+    "CORS_ORIGIN": "*"
+    // 可选的 DeepL 会话 Cookie，用于复用已登录会话
+    // "DL_SESSION": ""
+  }
+  // 若需在本地预览变量，可改用 .dev.vars 文件（已被 .gitignore 忽略）
+}
