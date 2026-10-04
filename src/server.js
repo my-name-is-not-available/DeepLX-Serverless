@@ -3,9 +3,8 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import yargs from 'yargs/yargs';
 import { hideBin } from 'yargs/helpers';
-import { brotliCompress, brotliDecompress } from 'zlib';
 import { translate } from './translate.js';
-import'dotenv/config';
+import 'dotenv/config';
 
 // 解析参数
 const argv = yargs(hideBin(process.argv))
@@ -19,7 +18,7 @@ const argv = yargs(hideBin(process.argv))
     alias: 'a',
     describe: 'Return alternatives translation',
     type: 'boolean',
-    default: Boolean(process.env.ALTERNATIVE) || true
+    default: process.env.ALTERNATIVE === undefined ? true : process.env.ALTERNATIVE !== 'false'
   })
   .option('cors', {
     alias: 'c',
@@ -31,8 +30,7 @@ const argv = yargs(hideBin(process.argv))
   .argv;
 
 // 定义配置
-const app = express(),
-  PORT = argv.port,
+const PORT = argv.port,
   returnAlternative = argv.alt,
   CORS = {
     origin: argv.cors,
@@ -41,21 +39,41 @@ const app = express(),
     preflightContinue: false
   };
 
-app.use(cors(CORS));
-app.use(bodyParser.json());
+// 创建 express 应用（含中间件与路由），便于本地服务与 Serverless 复用
+export function createApp() {
+  const app = express();
+  app.use(cors(CORS));
+  app.use(bodyParser.json());
+  app.post('/translate', (req, res) => post(req, res));
+  app.get('/', (req, res) => get(req, res));
+  return app;
+}
 
-app.post('/translate', async (req, res) => await post(req, res));
-app.get('/', async (req, res) => await get(req, res));
+// 校验并归一化请求体，非法时返回 null
+function normalizeBody(body) {
+  if (!body || typeof body !== 'object') return null;
+
+  let { text, source_lang, target_lang, alt_count } = body;
+
+  if (typeof text !== 'string' || text.trim() === '') return null;
+  if (typeof target_lang !== 'string' || target_lang.trim() === '') return null;
+  // source_lang 允许缺省与 'auto'，其余必须是字符串
+  if (source_lang !== undefined && source_lang !== null && typeof source_lang !== 'string') return null;
+  if (alt_count !== undefined && (typeof alt_count !== 'number' || !Number.isInteger(alt_count) || alt_count < 0 || alt_count > 3)) return null;
+
+  return {
+    text,
+    source_lang: (source_lang || 'auto').toUpperCase(),
+    target_lang: target_lang.toUpperCase(),
+    alt_count
+  };
+}
 
 async function post(req, res) {
   const startTime = Date.now();
+  const body = normalizeBody(req.body);
 
-  let { text, source_lang, target_lang, alt_count } = req.body;
-  source_lang = source_lang.toUpperCase();
-  target_lang = target_lang.toUpperCase();
-
-  // 检查请求体
-  if (!req.body || !text || !target_lang || alt_count !== undefined && typeof alt_count !== 'number' || alt_count > 3 || alt_count < 0) {
+  if (!body) {
     const duration = Date.now() - startTime;
     console.log(`[WARN] ${new Date().toISOString()} | POST "translate" | 400 | Bad Request | ${duration}ms`);
     return res.status(400).json({
@@ -64,69 +82,55 @@ async function post(req, res) {
     });
   }
 
-  try {
-    const result = await translate(text, source_lang, target_lang, alt_count);
-    // const result = await translate(text, source_lang, target_lang);
-    /*result = brotliDecompress(result, (err, decompressedData) => {
-    if (err) console.error(err);
-    return decompressedData;
-  });*/
+  const { text, source_lang, target_lang, alt_count } = body;
 
-    let duration = Date.now() - startTime;
-    if(result.code === 429) {
+  try {
+    const result = await translate(text, source_lang, target_lang, { altLimit: alt_count });
+    const duration = Date.now() - startTime;
+
+    if (result.code === 429) {
       console.error(`[WARN] ${new Date().toISOString()} | POST "translate" | 429 | ${result.message} | ${duration}ms`);
-      res.status(429).json({
+      return res.status(429).json({
         code: 429,
         message: result.message
       });
     }
-    
-    duration = Date.now() - startTime;
-    // console.log(result);
-    if(result == "" || result.data == "") {
-      console.error(`[ERROR] ${new Date().toISOString()} | POST "translate" | 500 | ${result.message} | ${duration}ms`);
-      res.status(500).json({
+
+    if (!result || result.data === undefined || result.data === '') {
+      console.error(`[ERROR] ${new Date().toISOString()} | POST "translate" | 500 | ${result && result.message} | ${duration}ms`);
+      return res.status(500).json({
         code: 500,
         message: "Translation failed",
-        error: result.statusText
+        error: result && result.statusText
       });
     }
-    console.log(`[LOG] ${new Date().toISOString()} | POST "translate" | 200 | ${duration}ms`);
 
-    const responseData = {
-      code: result.code,
+    console.log(`[LOG] ${new Date().toISOString()} | POST "translate" | 200 | ${duration}ms`);
+    return res.json({
+      code: result.code || 200,
       id: result.id,
       data: result.data,
       method: "Free",
       source_lang: result.source_lang,
       target_lang,
-      alternatives: (returnAlternative ? result.alternatives : "[]")
-    };
-
-    /*brotliCompress(responseData, (err, compressedData) => {
-      if (err) {
-        console.error('压缩错误: '+err);
-        res.json(responseData);
-      } else res.json(compressedData);
-    });*/
-
-    res.json(responseData);
+      alternatives: (returnAlternative ? result.alternatives : [])
+    });
 
   } catch (err) {
     console.error(err, err.stack);
-    res.status(500).json({
+    return res.status(500).json({
       code: 500,
       message: err.message
     });
   }
-};
+}
 
-async function get(req, res) {
+function get(req, res) {
   res.status(200).json({
     code: 200,
     message: "Welcome to the DeepL Free API. Please POST to '/translate'. Visit 'https://github.com/guobao2333/DeepLX-Serverless' for more information."
   });
-};
+}
 
 function check_cors(arg) {
   if (arg === undefined) return;
@@ -143,9 +147,12 @@ function check_port(arg) {
   return 6119;
 }
 
-// 启动本地服务器
-app.listen(PORT, () => {
-  console.log(`Server is running and listening on http://localhost:${PORT}/translate`);
-});
+// 仅在直接运行本文件时启动本地服务器，被 import 时不自动监听
+const isMain = process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
+if (isMain) {
+  createApp().listen(PORT, () => {
+    console.log(`Server is running and listening on http://localhost:${PORT}/translate`);
+  });
+}
 
 export { post, get };

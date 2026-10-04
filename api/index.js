@@ -1,15 +1,7 @@
-import express from 'express';
-import { post, get } from '../src/server.js';
+import { createApp } from '../src/server.js';
 
-const app = express();
+// 复用 server.js 的应用（含 CORS / body-parser / 路由）
+const app = createApp();
 
-app.post('/translate', async (req, res) => {
-  // 转发请求
-  const response = await post(req, res);
-
-  // 返回响应
-  const data = await response.json();
-  res.status(response.status).json(data);
-});
-
-app.get('/', async (req, res) => await get(req, res));
+// Serverless 环境由平台负责监听，这里不调用 app.listen
+export default app;

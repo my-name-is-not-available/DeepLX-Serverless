@@ -72,7 +72,7 @@ curl -X POST 'http://localhost:6119/translate' -H 'Content-Type: application/jso
 简单的示例：
 ```javascript
 import { translate } from './src/translate.js';
-translate('how are you?', 'en', 'zh', '', false, false)
+translate('how are you?', 'en', 'zh')
 .then(result => {
   console.log(result)
 });

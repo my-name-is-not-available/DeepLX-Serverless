@@ -46,9 +46,10 @@ async function sendRequest(postData, urlMethod, dlSession, tagHandling, printRes
     }
     return response.data;
   } catch (err) {
-    if (err.response.status === 429) {
+    const status = err.response && err.response.status;
+    if (status === 429) {
       return {
-        code: err.response.status,
+        code: 429,
         message: 'Too Many Requests'
       };
     } else { 
@@ -80,7 +81,19 @@ async function splitText(text, tagHandling, dlSession, printResult) {
 }
 
 // 执行翻译任务
-async function translate(text, sourceLang, targetLang, dlSession, tagHandling, printResult) {
+/**
+ * 翻译文本。
+ * @param {string} text 待翻译文本
+ * @param {string} sourceLang 源语言，'auto' 或空字符串为自动检测
+ * @param {string} targetLang 目标语言
+ * @param {object} [options] 可选参数
+ * @param {number} [options.altLimit] 备选翻译条数上限
+ * @param {string} [options.dlSession] DeepL 会话 cookie
+ * @param {string} [options.tagHandling] 设为 'html' 或 'xml' 时按富文本处理
+ * @param {boolean} [options.printResult] 打印原始响应
+ */
+async function translate(text, sourceLang, targetLang, options = {}) {
+  const { altLimit, dlSession, tagHandling, printResult } = options;
   try {
   if (!text) {
     throw new Error('No text to translate');
@@ -149,6 +162,10 @@ async function translate(text, sourceLang, targetLang, dlSession, tagHandling, p
 
   let alternatives = [], translatedText = '';
 
+  if (!response || !response.result || !response.result.translations || response.result.translations.length === 0) {
+    throw new Error('Translation failed: empty response');
+  }
+
   // 获取备选翻译
   if (response.result.translations != '' && response.result.translations.length > 0) {
     response.result.translations[0].beams.forEach(beam => {
@@ -158,6 +175,8 @@ async function translate(text, sourceLang, targetLang, dlSession, tagHandling, p
   // 获取翻译
   translatedText = response.result.translations[0].beams[0].sentences[0].text;
   alternatives.shift();
+  // 按 alt_limit 截断备选翻译数量
+  if (typeof altLimit === 'number') alternatives = alternatives.slice(0, altLimit);
 
   if (!translatedText) {
     throw new Error('Translation failed');
